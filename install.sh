@@ -12,67 +12,73 @@ log_action_msg "-----------------------------------------------------"
 log_action_msg "https://wiki.52pi.com/index.php/UPS_Plus_SKU:_EP-0136"
 log_action_msg "-----------------------------------------------------"
 log_action_msg "Start the configuration environment check..."
-ping_result=`ping -c 4 www.github.com &> /dev/null` 
+ping_result=`ping -c 4 www.github.com &> /dev/null`
 if [[ $ping_result -ne 0 ]]; then
-	log_failure_msg "Network is not available!"
-	log_warning_msg "Please check the network configuration and try again!"
+        log_failure_msg "Network is not available!"
+        log_warning_msg "Please check the network configuration and try again!"
 else
-	log_success_msg "Network status is ok..."
+        log_success_msg "Network status is ok..."
 fi
 
 # Package check and installation
 install_pkgs()
 {
-	`sudo apt-get -qq update`
-	`sudo apt-get -y -qq install sudo git i2c-tools`
+        `sudo apt-get -qq update`
+        `sudo apt-get -y -qq install sudo git i2c-tools`
 }
 
 log_action_msg "Start the software check..."
 pkgs=`dpkg -l | awk '{print $2}' | egrep ^git$`
 if [[ $pkgs = 'git' ]]; then
-	log_success_msg "git has been installed."
+        log_success_msg "git has been installed."
 else
-	log_action_msg "Installing git package..."
-	install_pkgs
-	if [[ $? -eq 0 ]]; then 
-	   log_success_msg "Package installation successfully."
-	else
-	   log_failure_msg "Package installation is failed,please install git package manually or check the repository"
-	fi
-fi	
+        log_action_msg "Installing git package..."
+        install_pkgs
+        if [[ $? -eq 0 ]]; then
+           log_success_msg "Package installation successfully."
+        else
+           log_failure_msg "Package installation is failed,please install git package manually or check the repository"
+        fi
+fi
 
 # install pi-ina219 library.
 ina_pkg=`pip3 list | grep ina |awk '{print $1}'`
 if [[ $ina_pkg = 'pi-ina219' ]]; then
-	log_success_msg "pi-ina219 library has been installed"
+        log_success_msg "pi-ina219 library has been installed"
 else
-	log_action_msg "Installing pi-ina219 library..."
-	pip3 install pi-ina219
-	if [[ $? -eq 0 ]]; then
-	   log_success_msg "pi-ina219 Installation successful."
-	else
-	   log_failure_msg "pi-ina219 installation failed!"
-	   log_warning_msg "Please install it by manual: pip3 install pi-ina219"
-	fi
+        log_action_msg "Installing pi-ina219 library..."
+        pip3 install pi-ina219
+        if [[ $? -eq 0 ]]; then
+           log_success_msg "pi-ina219 Installation successful."
+        else
+           log_failure_msg "pi-ina219 installation failed!"
+           log_warning_msg "Please install it by manual: pip3 install pi-ina219"
+        fi
 fi
 # install smbus2 library.
-log_action_msg "Installing smbus2 library..."
-pip3 install smbus smbus2
-if [[ $? -eq 0 ]]; then
-        log_success_msg "smbus2 Installation successful."
+smbus2_pkg=`pip3 list | grep smbus2 |awk '{print $1}'`
+if [[ $smbus2_pkg = 'smbus2' ]]; then
+        log_success_msg "smbus2 already installed"
 else
-    log_failure_msg "smbus2 installation failed!"
-    log_warning_msg "Please install it by manual: pip3 install smbus2"
+    log_action_msg "Installing smbus2 library..."
+    pip3 install smbus smbus2
+    if [[ $? -eq 0 ]]; then
+            log_success_msg "smbus2 Installation successful."
+    else
+        log_failure_msg "smbus2 installation failed!"
+        log_warning_msg "Please install it by manual: pip3 install smbus2"
+    fi
 fi
 
-# TODO: Create daemon service or crontab by creating python scripts. 
+# TODO: Create daemon service or crontab by creating python scripts.
 # create bin folder and create python script to detect UPS's status.
-log_action_msg "create $HOME/bin directory..."
-/bin/mkdir -p $HOME/bin
-export PATH=$PATH:$HOME/bin
+BIN_DIR="$HOME/.local/bin"
+log_action_msg "create $BIN_DIR directory..."
+/bin/mkdir -p $BIN_DIR
+export PATH=$PATH:$BIN_DIR
 
 # Create python script.
-cat > $HOME/bin/upsPlus.py << EOF
+cat > $BIN_DIR/upsPlus.py << EOF
 #!/usr/bin/env python3
 
 import os
@@ -89,7 +95,7 @@ DEVICE_BUS = 1
 DEVICE_ADDR = 0x17
 
 # Set the threshold of UPS automatic power-off to prevent damage caused by battery over-discharge, unit: mV.
-PROTECT_VOLT = 3700  
+PROTECT_VOLT = 3700
 
 # Set the sample period, Unit: min default: 2 min.
 SAMPLE_TIME = 2
@@ -133,7 +139,7 @@ except DeviceRangeError:
 bus = smbus2.SMBus(DEVICE_BUS)
 
 aReceiveBuf = []
-aReceiveBuf.append(0x00) 
+aReceiveBuf.append(0x00)
 
 # Read register and add the data to the list: aReceiveBuf
 for i in range(1, 255):
@@ -169,10 +175,11 @@ else:
         while True:
             time.sleep(10)
 EOF
-log_action_msg "Create python3 script in location: $HOME/bin/upsPlus.py Successful"
-# Upload the battery status to the data platform for subsequent technical support services 
+log_action_msg "Create python3 script in location: $BIN_DIR/upsPlus.py Successful"
+chmod 755 $BIN_DIR/upsPlus.py
+# Upload the battery status to the data platform for subsequent technical support services
 # Create python file
-cat > $HOME/bin/upsPlus_iot.py << EOF
+cat > $BIN_DIR/upsPlus_iot.py << EOF
 #!/usr/bin/env python3
 
 import time
@@ -232,8 +239,8 @@ DATA['FullTime'] = aReceiveBuf[35] << 24 | aReceiveBuf[34] << 16 | aReceiveBuf[3
 DATA['OneshotTime'] = aReceiveBuf[39] << 24 | aReceiveBuf[38] << 16 | aReceiveBuf[37] << 8 | aReceiveBuf[36]
 DATA['Version'] = aReceiveBuf[41] << 8 | aReceiveBuf[40]
 
-DATA['UID0'] = "%08X" % (aReceiveBuf[243] << 24 | aReceiveBuf[242] << 16 | aReceiveBuf[241] << 8 | aReceiveBuf[240]) 
-DATA['UID1'] = "%08X" % (aReceiveBuf[247] << 24 | aReceiveBuf[246] << 16 | aReceiveBuf[245] << 8 | aReceiveBuf[244]) 
+DATA['UID0'] = "%08X" % (aReceiveBuf[243] << 24 | aReceiveBuf[242] << 16 | aReceiveBuf[241] << 8 | aReceiveBuf[240])
+DATA['UID1'] = "%08X" % (aReceiveBuf[247] << 24 | aReceiveBuf[246] << 16 | aReceiveBuf[245] << 8 | aReceiveBuf[244])
 DATA['UID2'] = "%08X" % (aReceiveBuf[251] << 24 | aReceiveBuf[250] << 16 | aReceiveBuf[249] << 8 | aReceiveBuf[248])
 
 print(DATA)
@@ -241,25 +248,26 @@ r = requests.post(FEED_URL, data=DATA)
 print(r.text)
 
 EOF
-log_success_msg "Create UPS Plus IoT customer service python script successful" 
-# Add script to crontab 
+log_success_msg "Create UPS Plus IoT customer service python script successful"
+chmod 755 $BIN_DIR/upsPlus_iot.py
+# Add script to crontab
 log_action_msg "Add into general crontab list."
 
-(crontab -l 2>/dev/null; echo "* * * * * /usr/bin/python3 $HOME/bin/upsPlus.py > /tmp/upsPlus.log") | crontab -
-(crontab -l 2>/dev/null; echo "* * * * * /usr/bin/python3 $HOME/bin/upsPlus_iot.py > /tmp/upsPlus_iot.log") | crontab -
+(crontab -l 2>/dev/null; echo "* * * * * /usr/bin/python3 $BIN_DIR/upsPlus.py > /tmp/upsPlus.log") | crontab -
+(crontab -l 2>/dev/null; echo "* * * * * /usr/bin/python3 $BIN_DIR/upsPlus_iot.py > /tmp/upsPlus_iot.log") | crontab -
 sudo systemctl restart cron
 
 if [[ $? -eq 0 ]]; then
-	log_action_msg "crontab has been created successful!"
+        log_action_msg "crontab has been created successful!"
 else
-	log_failure_msg "Create crontab failed!!"
-	log_warning_msg "Please create crontab manually."
-	log_action_msg "Usage: crontab -e"
-fi 
+        log_failure_msg "Create crontab failed!!"
+        log_warning_msg "Please create crontab manually."
+        log_action_msg "Usage: crontab -e"
+fi
 
 # Testing and Greetings
-if [[ -e $HOME/bin/upsPlus.py ]]; then 
-    python3 $HOME/bin/upsPlus.py 
+if [[ -e $BIN_DIR/upsPlus.py ]]; then
+    python3 $BIN_DIR/upsPlus.py
     if [[ $? -eq 0 ]]; then
        log_success_msg "UPS Plus Installation is Complete!"
        log_action_msg "-----------------More Information--------------------"
@@ -271,5 +279,5 @@ if [[ -e $HOME/bin/upsPlus.py ]]; then
        log_action_msg "-----------------------------------------------------"
        log_action_msg "https://wiki.52pi.com/index.php/UPS_Plus_SKU:_EP-0136"
        log_action_msg "-----------------------------------------------------"
-    fi 
-fi 
+    fi
+fi
